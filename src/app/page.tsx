@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -15,7 +15,10 @@ import {
   TextQuote,
   Twitter,
   AlertCircle,
+  X,
+  Crown,
 } from "lucide-react";
+import Link from "next/link";
 import { toPng } from "html-to-image";
 
 type Quote = { text: string; tag: string };
@@ -24,6 +27,11 @@ type GenerateResult = {
   thread: string[];
   quotes: Quote[];
 };
+
+const FREE_LIMIT = 2;
+const USAGE_KEY = "c2t_free_usage";
+
+const SAMPLE_SCRIPT = `I sat down with Maya Chen, co-founder of Driftline, to talk about what actually happens after a startup raises its seed round. Maya left a comfortable staff engineer role at a big tech company to build an AI-powered logistics platform, and her first eighteen months were nothing like the highlight reel on social media. She explains why their original product — a dashboard for freight brokers — completely flopped, and how a single frustrated customer phone call rewrote the entire roadmap. We dig into the uncomfortable math of runway: Maya's rule is to cut burn the moment projected runway drops below nine months, not six, because fundraising always takes longer than you think. She also breaks down their unconventional hiring approach: no job postings, no recruiters, just a public build-in-public blog that attracted their first six engineers. On competition, Maya is refreshingly blunt — incumbents will copy your features, but they cannot copy your speed or your customer intimacy. Her advice to first-time founders is to talk to ten customers every single week, even after product-market fit, because churn whispers long before it screams. This is a candid, tactical conversation about surviving the messy middle of startup life.`;
 
 const TONES = [
   { id: "punchy", label: "Punchy & Insightful" },
@@ -169,6 +177,80 @@ function QuoteCardDownload({ quote, dark }: { quote: Quote; dark: boolean }) {
   );
 }
 
+function PaywallModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  if (!open) return null;
+  const checkoutUrl = process.env.NEXT_PUBLIC_LEMONSQUEEZY_CHECKOUT_URL;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full max-w-md rounded-2xl border border-ink-600 bg-ink-900 p-7 shadow-2xl shadow-violet-950/50"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          className="absolute right-4 top-4 text-zinc-500 transition-colors hover:text-zinc-200"
+        >
+          <X className="h-4 w-4" />
+        </button>
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-600/20">
+          <Crown className="h-5 w-5 text-violet-300" />
+        </div>
+        <h2 className="mt-4 text-xl font-bold tracking-tight text-zinc-100">
+          Upgrade to Clip2Thread Pro
+        </h2>
+        <p className="mt-1 text-sm text-zinc-400">
+          You&rsquo;ve used your {FREE_LIMIT} free generations. Keep shipping threads for less than a coffee a week.
+        </p>
+        <ul className="mt-5 flex flex-col gap-2.5 text-sm text-zinc-300">
+          {[
+            "Unlimited generations — $15/month",
+            "All premium tones and templates",
+            "HD quote cards, no watermark",
+          ].map((f) => (
+            <li key={f} className="flex items-start gap-2">
+              <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+              {f}
+            </li>
+          ))}
+        </ul>
+        {checkoutUrl ? (
+          <a
+            href={checkoutUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-600/30 transition-all hover:bg-violet-500"
+          >
+            <Crown className="h-4 w-4" />
+            Subscribe Now
+          </a>
+        ) : (
+          <div className="mt-6 rounded-xl border border-ink-600 bg-ink-800 p-3 text-center text-xs text-zinc-400">
+            Checkout opening soon — contact{" "}
+            <a href="mailto:support@dingsheng.cyou" className="text-violet-300 underline-offset-2 hover:underline">
+              support@dingsheng.cyou
+            </a>{" "}
+            for early access
+          </div>
+        )}
+        <p className="mt-3 text-center text-[11px] text-zinc-600">
+          Cancel anytime. Secure payments by Lemon Squeezy.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function getUsedCount(): number {
+  if (typeof window === "undefined") return 0;
+  const n = parseInt(window.localStorage.getItem(USAGE_KEY) || "0", 10);
+  return Number.isNaN(n) || n < 0 ? 0 : n;
+}
+
 export default function Home() {
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [transcript, setTranscript] = useState("");
@@ -178,8 +260,18 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [cardsDark, setCardsDark] = useState(true);
+  const [paywall, setPaywall] = useState(false);
+  const [used, setUsed] = useState(0);
+
+  useEffect(() => {
+    setUsed(getUsedCount());
+  }, []);
 
   async function generate() {
+    if (getUsedCount() >= FREE_LIMIT) {
+      setPaywall(true);
+      return;
+    }
     setLoading(true);
     setError(null);
     setResult(null);
@@ -194,6 +286,9 @@ export default function Home() {
         setError(data.error || "Something went wrong. Please try again.");
       } else {
         setResult(data as GenerateResult);
+        const next = getUsedCount() + 1;
+        window.localStorage.setItem(USAGE_KEY, String(next));
+        setUsed(next);
       }
     } catch {
       setError("Network error — is the dev server still running?");
@@ -228,6 +323,20 @@ export default function Home() {
               placeholder="https://www.youtube.com/watch?v=..."
               className="w-full bg-transparent py-3 text-sm outline-none placeholder:text-zinc-600"
             />
+          </div>
+          <p className="-mt-1 text-[11px] text-zinc-600">
+            Best with English YouTube videos (with captions) or English transcripts.
+          </p>
+          <div>
+            <button
+              onClick={() => {
+                setTranscript(SAMPLE_SCRIPT);
+                setManualOpen(true);
+              }}
+              className="text-xs font-medium text-violet-400/90 underline-offset-2 transition-colors hover:text-violet-300 hover:underline"
+            >
+              Try a sample script →
+            </button>
           </div>
 
           {/* Manual transcript toggle */}
@@ -296,6 +405,11 @@ export default function Home() {
               </>
             )}
           </button>
+
+          <p className="text-center text-[11px] text-zinc-600 sm:text-left">
+            {Math.max(FREE_LIMIT - used, 0)} of {FREE_LIMIT} free generations left
+            {used >= FREE_LIMIT && " — upgrade for unlimited"}
+          </p>
         </div>
       </section>
 
@@ -343,8 +457,23 @@ export default function Home() {
         </section>
       )}
 
-      <footer className="mt-16 text-center text-xs text-zinc-600">
-        Clip2Thread — built for creators. Paste a link, ship a thread.
+      <PaywallModal open={paywall} onClose={() => setPaywall(false)} />
+
+      <footer className="mt-16 flex flex-col items-center gap-2 text-center text-xs text-zinc-600">
+        <p>Clip2Thread — built for creators. Paste a link, ship a thread.</p>
+        <div className="flex items-center gap-2">
+          <Link href="/privacy" className="transition-colors hover:text-zinc-400">
+            Privacy Policy
+          </Link>
+          <span className="text-zinc-700">|</span>
+          <Link href="/terms" className="transition-colors hover:text-zinc-400">
+            Terms &amp; Refunds
+          </Link>
+          <span className="text-zinc-700">|</span>
+          <a href="mailto:support@dingsheng.cyou" className="transition-colors hover:text-zinc-400">
+            support@dingsheng.cyou
+          </a>
+        </div>
       </footer>
     </main>
   );

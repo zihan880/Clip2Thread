@@ -13,6 +13,35 @@ export const maxDuration = 60;
 
 const MAX_TRANSCRIPT_CHARS = 14000;
 
+// Simple in-memory sliding-window rate limiter (per IP): 10 requests per hour.
+const RATE_LIMIT = 10;
+const RATE_WINDOW_MS = 60 * 60 * 1000;
+const rateMap = new Map<string, number[]>();
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const hits = (rateMap.get(ip) || []).filter((t) => now - t < RATE_WINDOW_MS);
+  if (hits.length >= RATE_LIMIT) {
+    rateMap.set(ip, hits);
+    return true;
+  }
+  hits.push(now);
+  rateMap.set(ip, hits);
+  // Opportunistic cleanup to keep the map small.
+  if (rateMap.size > 10000) {
+    rateMap.forEach((v, k) => {
+      if (v.every((t) => now - t >= RATE_WINDOW_MS)) rateMap.delete(k);
+    });
+  }
+  return false;
+}
+
+function getClientIp(req: Request): string {
+  const fwd = req.headers.get("x-forwarded-for");
+  if (fwd) return fwd.split(",")[0].trim();
+  return req.headers.get("x-real-ip") || "unknown";
+}
+
 type Quote = { text: string; tag: string };
 type GenerateResult = {
   title: string;
@@ -95,6 +124,14 @@ function parseModelContent(content: string): GenerateResult {
 }
 
 export async function POST(req: Request) {
+  const ip = getClientIp(req);
+  if (isRateLimited(ip)) {
+    return NextResponse.json(
+      { error: "Too many requests from your network. Please try again later, or upgrade to Pro for unlimited use." },
+      { status: 429 }
+    );
+  }
+
   let body: { youtubeUrl?: string; transcript?: string; tone?: string };
   try {
     body = await req.json();
